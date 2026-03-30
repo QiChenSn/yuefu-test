@@ -1,0 +1,30 @@
+<component name="InspectionProjectProfileManager">
+  <profile version="1.0">
+    <option name="myName" value="Project Default" />
+    <inspection_tool class="PyInterpreterInspection" enabled="false" level="WARNING" enabled_by_default="false" />
+    <inspection_tool class="PyPackageRequirementsInspection" enabled="true" level="WARNING" enabled_by_default="true">
+      <option name="ignoredPackages">
+        <list>
+          <option value="aiohttp" />
+          <option value="beautifulsoup4" />
+          <option value="matplotlib" />
+          <option value="pyecharts" />
+          <option value="selenium" />
+          <option value="XlsxWriter" />
+          <option value="openpyxl" />
+          <option value="nltk" />
+          <option value="pyquery" />
+          <option value="lxml" />
+          <option value="requests" />
+          <option value="numpy" />
+          <option value="tqdm" />
+          <option value="wxPython" />
+          <option value="pandas" />
+          <option value="wxpy" />
+          <option value="Pillow" />
+          <option value="python_dateutil" />
+        </list>
+      </option>
+    </inspection_tool>
+  </profile>
+</component>

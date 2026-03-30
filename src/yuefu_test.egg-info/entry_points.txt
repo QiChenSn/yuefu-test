@@ -1,0 +1,2 @@
+[console_scripts]
+yuefu-test = yuefu_test.cli:app
