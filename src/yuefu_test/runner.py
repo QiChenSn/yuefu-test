@@ -80,12 +80,12 @@ class RunMetrics:
 
 async def run_batch(config: RunConfig, client: OmrClient, output_json: Path | None = None) -> List[RunMetrics]:
     total_rows = get_row_count(config.parquet_path)
-    logger.info(f"Starting batch workflow for {total_rows} rows in {config.parquet_path} (max concurrency = 5)")
+    logger.info(f"Starting batch workflow for {total_rows} rows in {config.parquet_path} (max concurrency = 2)")
 
     start_idx = 0 if config.row_index < 0 else config.row_index
     end_idx = total_rows if config.row_index < 0 else config.row_index + 1
 
-    sem = asyncio.Semaphore(5)
+    sem = asyncio.Semaphore(2)
 
     async def _sem_workflow(row_idx: int) -> RunMetrics:
         async with sem:
@@ -134,30 +134,28 @@ async def run_workflow(config: RunConfig, client: OmrClient) -> RunMetrics:
     attempts: List[AttemptMetrics] = []
     run_start = time.perf_counter()
 
-    logger.info(f"Starting workflow for {config.parquet_path} (row: {config.row_index}) | Max Attempts: {config.max_attempts}")
+    logger.info(f"Starting workflow for {config.parquet_path} (row: {config.row_index}) | Max Attempts: 1")
 
-    for attempt_index in range(1, config.max_attempts + 1):
-        engine = random.choice(ENGINE_CHOICES)
-        logger.info(f"\n--- Attempt {attempt_index}/{config.max_attempts} for row {config.row_index} using Engine '{engine}' ---")
-        attempt_metrics = await _run_single_attempt(
-            attempt_index=attempt_index,
-            engine=engine,
-            payload=payload,
-            client=client,
-            config=config,
-        )
-        attempts.append(attempt_metrics)
-        if attempt_metrics.success:
-            logger.info(f"Attempt {attempt_index} succeeded!")
-            break
-        else:
-            logger.warning(f"Attempt {attempt_index} failed (Final Status: {attempt_metrics.final_status}, Error: {attempt_metrics.error}).")
+    engine = random.choice(ENGINE_CHOICES)
+    logger.info(f"\n--- Attempt 1/1 for row {config.row_index} using Engine '{engine}' ---")
+    attempt_metrics = await _run_single_attempt(
+        attempt_index=1,
+        engine=engine,
+        payload=payload,
+        client=client,
+        config=config,
+    )
+    attempts.append(attempt_metrics)
+    if attempt_metrics.success:
+        logger.info(f"Attempt 1 succeeded!")
+    else:
+        logger.warning(f"Attempt 1 failed (Final Status: {attempt_metrics.final_status}, Error: {attempt_metrics.error}). No retries will be made.")
 
     elapsed_seconds = time.perf_counter() - run_start
     success_attempt = next((attempt.index for attempt in attempts if attempt.success), None)
     
     if success_attempt is None:
-        logger.error(f"Workflow failed after {len(attempts)} attempts. Elapsed: {elapsed_seconds:.2f}s")
+        logger.error(f"Workflow failed. Elapsed: {elapsed_seconds:.2f}s")
     else:
         logger.info(f"Workflow successfully finished on attempt {success_attempt}. Elapsed: {elapsed_seconds:.2f}s")
 
