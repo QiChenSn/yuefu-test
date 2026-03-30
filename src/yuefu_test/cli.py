@@ -35,6 +35,8 @@ def run(
         help="Path to the parquet shard to sample",
     ),
     row_index: int = typer.Option(0, "--row", help="Row index inside the parquet file (set to -1 to process all rows)"),
+    start_row: Optional[int] = typer.Option(None, "--start-row", help="Start row index for batch processing"),
+    end_row: Optional[int] = typer.Option(None, "--end-row", help="End row index (exclusive) for batch processing"),
     output_json: Optional[Path] = typer.Option(None, "--output", help="Path to save the summary JSON file"),
     max_attempts: int = typer.Option(3, "--max-attempts", min=1, help="Maximum number of upload attempts"),
     poll_timeout: float = typer.Option(300.0, "--poll-timeout", help="Seconds to wait for a task before retrying"),
@@ -54,6 +56,8 @@ def run(
     config = RunConfig(
         parquet_path=parquet_path,
         row_index=row_index,
+        start_row=start_row,
+        end_row=end_row,
         max_attempts=max_attempts,
         poll_timeout=poll_timeout,
         poll_interval=poll_interval,
@@ -61,12 +65,12 @@ def run(
 
     # Default output_json to summary.json if we are running a batch and no output was provided
     actual_output_json = output_json
-    if row_index < 0 and actual_output_json is None:
+    if (row_index < 0 or start_row is not None or end_row is not None) and actual_output_json is None:
         actual_output_json = Path("summary.json")
 
     async def _run():
         async with OmrClient(base_url, timeout=timeout, headers=headers or None, verify_ssl=verify_ssl) as client:
-            if row_index < 0:
+            if row_index < 0 or start_row is not None or end_row is not None:
                 metrics_list = await run_batch(config, client, output_json=actual_output_json)
                 success = all(m.success for m in metrics_list)
             else:

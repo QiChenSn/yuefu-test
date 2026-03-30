@@ -23,6 +23,8 @@ FAILURE_STATUSES = {"FAILED", "ERROR", "CANCELLED", "CANCELED"}
 class RunConfig:
     parquet_path: Path
     row_index: int = 0
+    start_row: int | None = None
+    end_row: int | None = None
     max_attempts: int = 3
     poll_timeout: float = 300.0
     poll_interval: float = 5.0
@@ -69,6 +71,8 @@ class RunMetrics:
             "config": {
                 "parquet_path": str(self.config.parquet_path),
                 "row_index": self.config.row_index,
+                "start_row": self.config.start_row,
+                "end_row": self.config.end_row,
                 "max_attempts": self.config.max_attempts,
                 "poll_timeout": self.config.poll_timeout,
                 "poll_interval": self.config.poll_interval,
@@ -84,11 +88,14 @@ async def run_batch(config: RunConfig, client: OmrClient, output_json: Path | No
     start_idx = 0 if config.row_index < 0 else config.row_index
     end_idx = total_rows if config.row_index < 0 else config.row_index + 1
 
-    if config.row_index < 0:
+    if config.start_row is not None:
+        start_idx = max(0, config.start_row)
+    if config.end_row is not None:
+        end_idx = min(total_rows, config.end_row)
+    elif config.row_index < 0:
         end_idx = min(total_rows, 20)
-        logger.info(f"Starting batch workflow for first {end_idx} rows in {config.parquet_path} (max concurrency = 2)")
-    else:
-        logger.info(f"Starting batch workflow for row {config.row_index} in {config.parquet_path} (max concurrency = 2)")
+
+    logger.info(f"Starting batch workflow for rows {start_idx} to {end_idx - 1} in {config.parquet_path} (max concurrency = 2)")
 
     sem = asyncio.Semaphore(2)
 
