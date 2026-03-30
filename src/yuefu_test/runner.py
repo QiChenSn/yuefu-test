@@ -80,16 +80,21 @@ class RunMetrics:
 
 async def run_batch(config: RunConfig, client: OmrClient, output_json: Path | None = None) -> List[RunMetrics]:
     total_rows = get_row_count(config.parquet_path)
-    logger.info(f"Starting batch workflow for {total_rows} rows in {config.parquet_path} (max concurrency = 2)")
-
+    
     start_idx = 0 if config.row_index < 0 else config.row_index
     end_idx = total_rows if config.row_index < 0 else config.row_index + 1
+
+    if config.row_index < 0:
+        end_idx = min(total_rows, 20)
+        logger.info(f"Starting batch workflow for first {end_idx} rows in {config.parquet_path} (max concurrency = 2)")
+    else:
+        logger.info(f"Starting batch workflow for row {config.row_index} in {config.parquet_path} (max concurrency = 2)")
 
     sem = asyncio.Semaphore(2)
 
     async def _sem_workflow(row_idx: int) -> RunMetrics:
         async with sem:
-            logger.info(f"--- Processing row {row_idx}/{total_rows - 1} ---")
+            logger.info(f"--- Processing row {row_idx}/{end_idx - 1} ---")
             row_config = RunConfig(
                 parquet_path=config.parquet_path,
                 row_index=row_idx,
