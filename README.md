@@ -15,7 +15,7 @@ uv pip install -e .[dev]
 ## 使用方法
 ```powershell
 cd D:\Code\Project\yuefu-test
-uv run yuefu-test run --base-url https://example.com --row 0
+uv run yuefu-test --base-url https://example.com --row 0
 ```
 
 可选参数：
