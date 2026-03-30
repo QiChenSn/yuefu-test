@@ -59,16 +59,25 @@ def run(
         poll_interval=poll_interval,
     )
 
+    # Default output_json to summary.json if we are running a batch and no output was provided
+    actual_output_json = output_json
+    if row_index < 0 and actual_output_json is None:
+        actual_output_json = Path("summary.json")
+
     async def _run():
         async with OmrClient(base_url, timeout=timeout, headers=headers or None, verify_ssl=verify_ssl) as client:
             if row_index < 0:
-                metrics_list = await run_batch(config, client, output_json=output_json)
+                metrics_list = await run_batch(config, client, output_json=actual_output_json)
                 success = all(m.success for m in metrics_list)
             else:
                 metrics = await run_workflow(config, client)
                 success = metrics.success
-                if output_json:
-                    metrics_list = await run_batch(config, client, output_json=output_json)
+                if actual_output_json:
+                    # Optional: Output summary for single run too, but run_batch might not be what we want here
+                    # To just write single run to json:
+                    with actual_output_json.open("w", encoding="utf-8") as f:
+                        f.write(metrics.to_json())
+                    logger.info(f"Summary saved to {actual_output_json}")
                 else:
                     typer.echo(metrics.to_json())
         return success
