@@ -46,6 +46,14 @@ def load_payload(parquet_path: Path, row_index: int = 0) -> FilePayload:
     )
 
 
+def get_row_count(parquet_path: Path) -> int:
+    """Return the total number of rows in the Parquet file."""
+    path = Path(parquet_path)
+    if not path.exists():
+        raise FileNotFoundError(f"Parquet file not found: {path}")
+    return pq.read_table(path, columns=["filename"]).num_rows
+
+
 def persist_payload(payload: FilePayload, output_dir: Path) -> Path:
     """Write the decoded bytes to *output_dir* and return the saved file path."""
 

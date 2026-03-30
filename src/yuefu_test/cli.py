@@ -3,11 +3,12 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, Iterable, Optional
 import logging
+import asyncio
 
 import typer
 
 from .api import OmrClient
-from .runner import RunConfig, run_workflow
+from .runner import RunConfig, run_workflow, run_batch
 
 app = typer.Typer(add_completion=False, no_args_is_help=True)
 
@@ -33,7 +34,8 @@ def run(
         dir_okay=False,
         help="Path to the parquet shard to sample",
     ),
-    row_index: int = typer.Option(0, "--row", min=0, help="Row index inside the parquet file"),
+    row_index: int = typer.Option(0, "--row", help="Row index inside the parquet file (set to -1 to process all rows)"),
+    output_json: Optional[Path] = typer.Option(None, "--output", help="Path to save the summary JSON file"),
     max_attempts: int = typer.Option(3, "--max-attempts", min=1, help="Maximum number of upload attempts"),
     poll_timeout: float = typer.Option(300.0, "--poll-timeout", help="Seconds to wait for a task before retrying"),
     poll_interval: float = typer.Option(5.0, "--poll-interval", help="Seconds between status checks"),
@@ -57,13 +59,24 @@ def run(
         poll_interval=poll_interval,
     )
 
-    with OmrClient(base_url, timeout=timeout, headers=headers or None, verify_ssl=verify_ssl) as client:
-        metrics = run_workflow(config, client)
+    async def _run():
+        async with OmrClient(base_url, timeout=timeout, headers=headers or None, verify_ssl=verify_ssl) as client:
+            if row_index < 0:
+                metrics_list = await run_batch(config, client, output_json=output_json)
+                success = all(m.success for m in metrics_list)
+            else:
+                metrics = await run_workflow(config, client)
+                success = metrics.success
+                if output_json:
+                    metrics_list = await run_batch(config, client, output_json=output_json)
+                else:
+                    typer.echo(metrics.to_json())
+        return success
 
-    typer.echo(metrics.to_json())
-    if not metrics.success:
+    success = asyncio.run(_run())
+
+    if not success:
         raise typer.Exit(code=1)
-
 
 if __name__ == "__main__":  # pragma: no cover
     app()

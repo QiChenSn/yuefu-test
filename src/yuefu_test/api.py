@@ -34,12 +34,12 @@ class OmrClient:
         timeout: float = 30.0,
         headers: MutableMapping[str, str] | None = None,
         verify_ssl: bool = True,
-        transport: httpx.BaseTransport | None = None,
+        transport: httpx.BaseTransport | httpx.AsyncBaseTransport | None = None,
     ) -> None:
         if not base_url:
             raise ValueError("base_url must be provided")
 
-        self._client = httpx.Client(
+        self._client = httpx.AsyncClient(
             base_url=base_url.rstrip("/"),
             timeout=timeout,
             headers=headers,
@@ -47,21 +47,21 @@ class OmrClient:
             transport=transport,
         )
 
-    def close(self) -> None:
-        self._client.close()
+    async def aclose(self) -> None:
+        await self._client.aclose()
 
-    def __enter__(self) -> "OmrClient":  # pragma: no cover - sugar around httpx.Client
+    async def __aenter__(self) -> "OmrClient":  # pragma: no cover
         return self
 
-    def __exit__(self, *_: object) -> None:  # pragma: no cover - sugar around httpx.Client
-        self.close()
+    async def __aexit__(self, *_: object) -> None:  # pragma: no cover
+        await self.aclose()
 
-    def submit(self, engine: str, filename: str, content: bytes) -> SubmitResult:
+    async def submit(self, engine: str, filename: str, content: bytes) -> SubmitResult:
         mime_type = mimetypes.guess_type(filename)[0] or "image/jpeg"
         if mime_type not in ("image/jpeg", "image/png"):
             mime_type = "image/jpeg"
         logger.info(f"Submitting file '{filename}' (MIME: {mime_type}) to engine '{engine}'")
-        response = self._client.post(
+        response = await self._client.post(
             f"/omr/submit/{engine}",
             files={"file": (filename, content, mime_type)},
         )
@@ -71,9 +71,9 @@ class OmrClient:
         logger.info(f"Submit successful, task ID is '{task_id}'")
         return SubmitResult(engine=engine, task_id=task_id, response=payload)
 
-    def fetch_status(self, task_id: str) -> StatusResult:
+    async def fetch_status(self, task_id: str) -> StatusResult:
         logger.debug(f"Fetching status for task '{task_id}'")
-        response = self._client.get(f"/omr/status/{task_id}")
+        response = await self._client.get(f"/omr/status/{task_id}")
         response.raise_for_status()
         payload = response.json()
         status = _lookup_status(payload)

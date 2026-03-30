@@ -3,13 +3,14 @@ from __future__ import annotations
 import json
 import random
 import time
+import asyncio
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import List, Sequence
 import logging
 
 from .api import OmrClient
-from .data import FilePayload, load_payload
+from .data import FilePayload, load_payload, get_row_count
 
 logger = logging.getLogger(__name__)
 
@@ -77,8 +78,55 @@ class RunMetrics:
     def to_json(self) -> str:
         return json.dumps(self.to_dict(), ensure_ascii=False, indent=2)
 
+async def run_batch(config: RunConfig, client: OmrClient, output_json: Path | None = None) -> List[RunMetrics]:
+    total_rows = get_row_count(config.parquet_path)
+    logger.info(f"Starting batch workflow for {total_rows} rows in {config.parquet_path} (max concurrency = 5)")
 
-def run_workflow(config: RunConfig, client: OmrClient) -> RunMetrics:
+    start_idx = 0 if config.row_index < 0 else config.row_index
+    end_idx = total_rows if config.row_index < 0 else config.row_index + 1
+
+    sem = asyncio.Semaphore(5)
+
+    async def _sem_workflow(row_idx: int) -> RunMetrics:
+        async with sem:
+            logger.info(f"--- Processing row {row_idx}/{total_rows - 1} ---")
+            row_config = RunConfig(
+                parquet_path=config.parquet_path,
+                row_index=row_idx,
+                max_attempts=config.max_attempts,
+                poll_timeout=config.poll_timeout,
+                poll_interval=config.poll_interval,
+            )
+            return await run_workflow(row_config, client)
+
+    tasks = [_sem_workflow(row_idx) for row_idx in range(start_idx, end_idx)]
+    all_metrics = await asyncio.gather(*tasks)
+
+    if output_json:
+        summary_data = []
+        for m in all_metrics:
+            summary_data.append({
+                "row_index": m.config.row_index,
+                "success": m.success,
+                "elapsed_seconds": m.elapsed_seconds,
+                "total_attempts": len(m.attempts),
+                "engines_used": [a.engine for a in m.attempts],
+                "task_ids": [a.task_id for a in m.attempts],
+            })
+        
+        output_data = {
+            "total_processed": len(all_metrics),
+            "successful": sum(1 for m in all_metrics if m.success),
+            "details": summary_data
+        }
+        output_json.parent.mkdir(parents=True, exist_ok=True)
+        with output_json.open("w", encoding="utf-8") as f:
+            json.dump(output_data, f, ensure_ascii=False, indent=2)
+        logger.info(f"Batch summary saved to {output_json}")
+
+    return all_metrics
+
+async def run_workflow(config: RunConfig, client: OmrClient) -> RunMetrics:
     if config.max_attempts < 1:
         raise ValueError("max_attempts must be at least 1")
 
@@ -90,8 +138,8 @@ def run_workflow(config: RunConfig, client: OmrClient) -> RunMetrics:
 
     for attempt_index in range(1, config.max_attempts + 1):
         engine = random.choice(ENGINE_CHOICES)
-        logger.info(f"\n--- Attempt {attempt_index}/{config.max_attempts} using Engine '{engine}' ---")
-        attempt_metrics = _run_single_attempt(
+        logger.info(f"\n--- Attempt {attempt_index}/{config.max_attempts} for row {config.row_index} using Engine '{engine}' ---")
+        attempt_metrics = await _run_single_attempt(
             attempt_index=attempt_index,
             engine=engine,
             payload=payload,
@@ -121,7 +169,7 @@ def run_workflow(config: RunConfig, client: OmrClient) -> RunMetrics:
     )
 
 
-def _run_single_attempt(
+async def _run_single_attempt(
     *,
     attempt_index: int,
     engine: str,
@@ -138,7 +186,7 @@ def _run_single_attempt(
     start_time = time.perf_counter()
 
     try:
-        submit_result = client.submit(engine, payload.filename, payload.content)
+        submit_result = await client.submit(engine, payload.filename, payload.content)
         task_id = submit_result.task_id
     except Exception as exc:  # pragma: no cover - http/network branch
         error = str(exc)
@@ -164,7 +212,7 @@ def _run_single_attempt(
             break
 
         try:
-            status_result = client.fetch_status(task_id)
+            status_result = await client.fetch_status(task_id)
         except Exception as exc:  # pragma: no cover - http/network branch
             error = str(exc)
             logger.error(f"Error fetching status for task '{task_id}': {error}")
@@ -181,7 +229,7 @@ def _run_single_attempt(
             logger.error(f"Task '{task_id}' reported failure status: {final_status}")
             break
 
-        time.sleep(config.poll_interval)
+        await asyncio.sleep(config.poll_interval)
 
     duration = time.perf_counter() - start_time
     return AttemptMetrics(
